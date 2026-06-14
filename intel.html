@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>CAGED Practice</title>
+
+<!-- iOS / Android "Add to Home Screen" support -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="CAGED" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#ffffff" />
+
+<!-- App icon (used for the home screen icon on iOS/Android) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%233F7D3A'/%3E%3Ctext x='50' y='62' font-family='monospace' font-size='44' font-weight='800' fill='white' text-anchor='middle'%3ECAGED %3C/text%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%233F7D3A'/%3E%3Ctext x='50' y='62' font-family='monospace' font-size='44' font-weight='800' fill='white' text-anchor='middle'%3ECAGED %3C/text%3E%3C/svg%3E" />
+
+<!-- Web app manifest (inline data URI, so the whole app stays one file) -->
+<link rel="manifest" href='data:application/json,{"name":"CAGED Practice","short_name":"CAGED","display":"standalone","start_url":".","background_color":"%23ffffff","theme_color":"%23ffffff"}' />
+
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  #root { min-height: 100vh; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+</style>
+
+<!-- React + Babel from CDN, so this single file runs with no build step -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useEffect } = React;
+
+
+// ─── Music theory constants ────────────────────────────────────────────────
+const NOTE_DISPLAY = ["C","C#","D","D#","E","F","F#","G","G#","A","Bb","B"];
+const ENHARMONIC = { "C#":"Db","D#":"Eb","F#":"Gb","G#":"Ab","A#":"Bb" };
+const STRING_SEMI = [4, 11, 7, 2, 9, 4]; // highE,B,G,D,A,lowE — semitones from C
+const STRING_NAMES = ['e','B','G','D','A','E'];
+
+function semiToName(n) { return NOTE_DISPLAY[((n % 12) + 12) % 12]; }
+
+// ─── Chord-quality definitions ─────────────────────────────────────────────
+const QUALITIES = {
+  major: {
+    label: 'Major', suffix: '',
+    arpeggio: [0,4,7],     arpNames: ['R','M3','5'],
+    scale:    [0,2,4,5,7,9,11], scaleNames: ['R','2','M3','4','5','M6','M7'],
+    scaleLabel: 'Major scale', scaleShort: 'Major scale',
+    pentaShort: 'Maj. pent.',
+  },
+  minor: {
+    label: 'Minor', suffix: 'm',
+    arpeggio: [0,3,7],     arpNames: ['R','m3','5'],
+    scale:    [0,2,3,5,7,8,10], scaleNames: ['R','2','m3','4','5','m6','m7'],
+    scaleLabel: 'Natural minor scale', scaleShort: 'Nat. minor',
+    pentaShort: 'Min. pent.',
+  },
+  dom7: {
+    label: '7th', suffix: '7',
+    arpeggio: [0,4,7,10],  arpNames: ['R','M3','5','b7'],
+    scale:    [0,3,5,6,7,10], scaleNames: ['R','m3','4','b5','5','b7'],
+    scaleLabel: 'Blues scale', scaleShort: 'Blues scale',
+    pentaShort: 'Min. pent.',
+  },
+};
+const QUALITY_ORDER = ['major','minor','dom7'];
+const MINOR_PENTA = [0,3,5,7,10];
+const MINOR_PENTA_NAMES = ['R','m3','4','5','m7'];
+const MAJOR_PENTA = [0,2,4,7,9];
+const MAJOR_PENTA_NAMES = ['R','2','M3','5','M6'];
+
+// ─── CAGED shape definitions — 5 positions × 3 chord qualities ─────────────
+// chordDots: {str, rf, type}. str: 0=high-e ... 5=low-E. rf = fret offset from baseFret.
+// type uses the interval vocabulary: R, m3, M3, 5, b7
+const CAGED_SHAPES = {
+  C: {
+    label: "C-shape", color: "#2D6E9E",
+    rootStr: 4, rootFretOffset: 3, barreStr: null, scaleWindow: 5,
+    chords: {
+      major: [{str:4,rf:3,type:'R'},{str:3,rf:2,type:'M3'},{str:2,rf:0,type:'5'},{str:1,rf:1,type:'R'},{str:0,rf:0,type:'M3'}],
+      minor: [{str:4,rf:3,type:'R'},{str:3,rf:1,type:'m3'},{str:2,rf:0,type:'5'},{str:1,rf:1,type:'R'}],
+      dom7:  [{str:4,rf:3,type:'R'},{str:3,rf:2,type:'M3'},{str:2,rf:3,type:'b7'},{str:1,rf:1,type:'R'},{str:0,rf:0,type:'M3'}],
+    },
+  },
+  A: {
+    label: "A-shape", color: "#3F7D3A",
+    rootStr: 4, rootFretOffset: 0, barreStr: 5, scaleWindow: 4,
+    chords: {
+      major: [{str:4,rf:0,type:'R'},{str:3,rf:2,type:'5'},{str:2,rf:2,type:'R'},{str:1,rf:2,type:'M3'},{str:0,rf:0,type:'5'}],
+      minor: [{str:4,rf:0,type:'R'},{str:3,rf:2,type:'5'},{str:2,rf:2,type:'R'},{str:1,rf:1,type:'m3'},{str:0,rf:0,type:'5'}],
+      dom7:  [{str:4,rf:0,type:'R'},{str:3,rf:2,type:'5'},{str:2,rf:0,type:'b7'},{str:1,rf:2,type:'M3'},{str:0,rf:0,type:'5'}],
+    },
+  },
+  G: {
+    label: "G-shape", color: "#C17817",
+    rootStr: 5, rootFretOffset: 3, barreStr: null, scaleWindow: 5,
+    chords: {
+      major: [{str:5,rf:3,type:'R'},{str:4,rf:2,type:'M3'},{str:3,rf:0,type:'5'},{str:2,rf:0,type:'R'},{str:1,rf:0,type:'M3'},{str:0,rf:3,type:'R'}],
+      minor: [{str:5,rf:3,type:'R'},{str:4,rf:1,type:'m3'},{str:3,rf:0,type:'5'},{str:2,rf:0,type:'R'},{str:0,rf:3,type:'R'}],
+      dom7:  [{str:5,rf:3,type:'R'},{str:4,rf:2,type:'M3'},{str:3,rf:0,type:'5'},{str:2,rf:0,type:'R'},{str:1,rf:0,type:'M3'},{str:0,rf:1,type:'b7'}],
+    },
+  },
+  E: {
+    label: "E-shape", color: "#6B4FA0",
+    rootStr: 5, rootFretOffset: 0, barreStr: 6, scaleWindow: 5,
+    chords: {
+      major: [{str:5,rf:0,type:'R'},{str:4,rf:2,type:'5'},{str:3,rf:2,type:'R'},{str:2,rf:1,type:'M3'},{str:1,rf:0,type:'5'},{str:0,rf:0,type:'R'}],
+      minor: [{str:5,rf:0,type:'R'},{str:4,rf:2,type:'5'},{str:3,rf:2,type:'R'},{str:2,rf:0,type:'m3'},{str:1,rf:0,type:'5'},{str:0,rf:0,type:'R'}],
+      dom7:  [{str:5,rf:0,type:'R'},{str:4,rf:2,type:'5'},{str:3,rf:0,type:'b7'},{str:2,rf:1,type:'M3'},{str:1,rf:0,type:'5'},{str:0,rf:0,type:'R'}],
+    },
+  },
+  D: {
+    label: "D-shape", color: "#B8442C",
+    rootStr: 3, rootFretOffset: 0, barreStr: null, scaleWindow: 5,
+    chords: {
+      major: [{str:3,rf:0,type:'R'},{str:2,rf:2,type:'5'},{str:1,rf:3,type:'R'},{str:0,rf:2,type:'M3'}],
+      minor: [{str:3,rf:0,type:'R'},{str:2,rf:2,type:'5'},{str:1,rf:3,type:'R'},{str:0,rf:1,type:'m3'}],
+      dom7:  [{str:3,rf:0,type:'R'},{str:2,rf:2,type:'5'},{str:1,rf:1,type:'b7'},{str:0,rf:2,type:'M3'}],
+    },
+  },
+};
+const SHAPES = ['C','A','G','E','D'];
+const STEPS  = ['Chord','Arpeggio','Pentatonic','Scale'];
+const STEP_ICONS = ['⬡','◢','◇','≡'];
+
+// ─── Position math ──────────────────────────────────────────────────────────
+function getBaseFret(keyIdx, shapeName) {
+  const shape = CAGED_SHAPES[shapeName];
+  const strSemi = STRING_SEMI[shape.rootStr];
+  let rf = ((keyIdx - strSemi) % 12 + 12) % 12;
+  let bf = rf - shape.rootFretOffset;
+  if (bf < 0) bf += 12;
+  return bf;
+}
+
+// Scale / arpeggio / pentatonic dot generation (positional patterns)
+function generateDots(keyIdx, shapeName, intervals, names) {
+  const shape = CAGED_SHAPES[shapeName];
+  const bf = getBaseFret(keyIdx, shapeName);
+  const win = shape.scaleWindow;
+  const dots = [];
+  for (let str = 0; str < 6; str++) {
+    const ss = STRING_SEMI[str];
+    const start = bf === 0 ? 0 : bf - 1;
+    for (let f = start; f <= start + win + 1; f++) {
+      const note = ((ss + f) % 12 + 12) % 12;
+      const iv = ((note - keyIdx) % 12 + 12) % 12;
+      const idx = intervals.indexOf(iv);
+      if (idx !== -1) dots.push({ str, fret:f, type: names[idx], noteName: semiToName(note) });
+    }
+  }
+  return dots;
+}
+
+// Chord voicing — derives open/fretted/muted status per string directly
+// from the shape's chord dots, for the active quality.
+function getChordVoicing(keyIdx, shapeName, qualityKey) {
+  const shape = CAGED_SHAPES[shapeName];
+  const bf = getBaseFret(keyIdx, shapeName);
+  const chordDots = shape.chords[qualityKey];
+  const byString = {};
+  chordDots.forEach(d => {
+    const fret = bf + d.rf;
+    const note = ((STRING_SEMI[d.str] + fret) % 12 + 12) % 12;
+    byString[d.str] = { ...d, fret, noteName: semiToName(note) };
+  });
+  return Array.from({length:6}, (_,str) => {
+    const d = byString[str];
+    if (!d) return { status:'mute', str };
+    if (d.fret === 0) return { status:'open', str, dot:d };
+    return { status:'fret', str, dot:d };
+  });
+}
+
+// ─── Interval color palette ────────────────────────────────────────────────
+const INTERVAL_COLORS = {
+  R:'#E14B4A', '2':'#D4A017', m3:'#B8442C', M3:'#2D6E9E', '4':'#5C6BC0',
+  b5:'#A23E8C', '5':'#3F9E6E', P5:'#3F9E6E', m6:'#8A6D3B', M6:'#2BA89A', '6':'#2BA89A',
+  m7:'#C17817', b7:'#C17817', '7':'#C17817', M7:'#6B4FA0',
+};
+function getColor(t) { return INTERVAL_COLORS[t] || '#888780'; }
+
+// ─── Fretboard ──────────────────────────────────────────────────────────────
+function Fretboard({ voicing, dots, baseFret, barreStr, numFrets }) {
+  const VW = 350, PL = 40, PR = 10, PT = 22, PB = 8;
+  const STR_COUNT = 6, strH = 30;
+  const fretW = (VW - PL - PR) / numFrets;
+  const VH = PT + (STR_COUNT-1)*strH + PB;
+  const isOpen = baseFret === 0;
+  const displayBase = voicing ? baseFret : (isOpen ? 0 : baseFret - 1);
+  const MARKERS = new Set([3,5,7,9,12,15,17,19,21,24]);
+  const openZoneX = PL - 14;
+  const labelX = 8;
+
+  // Build a unified render-list of dots, splitting into "open zone" vs "fretted"
+  let renderDots = [];
+  let mutedStrings = [];
+  if (voicing) {
+    voicing.forEach((s) => {
+      if (s.status === 'fret')  renderDots.push({ str:s.str, fret:s.dot.fret, type:s.dot.type, noteName:s.dot.noteName, zone:'fret' });
+      else if (s.status === 'open') renderDots.push({ str:s.str, fret:0, type:s.dot.type, noteName:s.dot.noteName, zone:'open' });
+      else if (s.status === 'mute') mutedStrings.push(s.str);
+    });
+  } else if (dots) {
+    dots.forEach(d => {
+      if (isOpen && d.fret === 0) renderDots.push({ ...d, zone:'open' });
+      else renderDots.push({ ...d, zone:'fret' });
+    });
+  }
+
+  return (
+    <svg viewBox={`0 0 ${VW} ${VH}`} style={{width:'100%',display:'block'}}>
+      {/* Fret number labels */}
+      {Array.from({length:numFrets},(_,i) => {
+        const f = isOpen ? i+1 : displayBase+i;
+        if (f <= 0) return null;
+        return <text key={i} x={PL+(i+0.5)*fretW} y={13} textAnchor="middle" fontSize={9.5}
+          fontFamily="var(--font-mono)" fill="var(--color-text-tertiary)">{f}</text>;
+      })}
+      {/* Fret-marker shading */}
+      {Array.from({length:numFrets+1},(_,i) => {
+        const fNum = displayBase+i;
+        if (MARKERS.has(fNum) && i > 0) {
+          return <rect key={i} x={PL+(i-0.5)*fretW+2} y={PT+1} width={fretW-4} height={(STR_COUNT-1)*strH-2} rx={3}
+            fill="var(--color-background-secondary)" opacity={0.6}/>;
+        }
+        return null;
+      })}
+      {/* Fret lines */}
+      {Array.from({length:numFrets+1},(_,i) => {
+        const x = PL+i*fretW, nut = i===0&&isOpen;
+        return <line key={i} x1={x} y1={PT} x2={x} y2={PT+(STR_COUNT-1)*strH}
+          stroke={nut?'var(--color-text-primary)':'var(--color-border-secondary)'}
+          strokeWidth={nut?3.5:0.75}/>;
+      })}
+      {/* Strings */}
+      {Array.from({length:STR_COUNT},(_,s) => (
+        <g key={s}>
+          <line x1={PL} y1={PT+s*strH} x2={PL+numFrets*fretW} y2={PT+s*strH}
+            stroke="var(--color-border-primary)" strokeWidth={0.5+s*0.3}/>
+          <text x={labelX} y={PT+s*strH+3.5} textAnchor="middle" fontSize={10}
+            fontFamily="var(--font-mono)" fill="var(--color-text-tertiary)">{STRING_NAMES[s]}</text>
+        </g>
+      ))}
+      {/* Muted strings */}
+      {mutedStrings.map(str => (
+        <text key={str} x={openZoneX} y={PT+str*strH+4} textAnchor="middle" fontSize={12}
+          fontFamily="var(--font-mono)" fill="var(--color-text-tertiary)">×</text>
+      ))}
+      {/* Barre */}
+      {barreStr && barreStr <= 6 && baseFret > 0 && (() => {
+        const x = PL+0.5*fretW;
+        const s0 = barreStr===6 ? 0 : 1;
+        const y1 = PT+s0*strH, y2 = PT+(STR_COUNT-1)*strH;
+        return <rect x={x-8} y={y1-3} width={16} height={y2-y1+6} rx={8} fill="var(--color-text-secondary)" opacity={0.28}/>;
+      })()}
+      {/* Note dots */}
+      {renderDots.map((d,i) => {
+        let x;
+        if (d.zone === 'open') {
+          x = openZoneX;
+        } else {
+          const offset = isOpen ? 1 : displayBase;
+          x = PL+(d.fret-offset+0.5)*fretW;
+          if (x < PL-4 || x > PL+numFrets*fretW+4) return null;
+        }
+        const y = PT+d.str*strH;
+        const col = getColor(d.type);
+        return (
+          <g key={i}>
+            <circle cx={x} cy={y} r={11} fill={col}/>
+            <text x={x} y={y+3.5} textAnchor="middle" fontSize={9} fontWeight="700"
+              fontFamily="var(--font-mono)" fill="white">{d.noteName||d.type||''}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Legend ─────────────────────────────────────────────────────────────────
+function Legend({ items }) {
+  return (
+    <div style={{display:'flex',flexWrap:'wrap',gap:'6px 12px',marginBottom:10}}>
+      {items.map(({label,type}) => (
+        <div key={label} style={{display:'flex',alignItems:'center',gap:5}}>
+          <div style={{width:11,height:11,borderRadius:'50%',background:getColor(type),flexShrink:0}}/>
+          <span style={{fontSize:12,color:'var(--color-text-secondary)',lineHeight:1}}>{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Step content ───────────────────────────────────────────────────────────
+function StepView({ keyIdx, shapeName, quality, step }) {
+  const sh = CAGED_SHAPES[shapeName];
+  const q  = QUALITIES[quality];
+  const bf = getBaseFret(keyIdx, shapeName);
+  const kn = NOTE_DISPLAY[keyIdx];
+  const isOpen = bf === 0;
+  const posLabel = isOpen ? 'open position' : `fret ${bf}`;
+
+  if (step === 0) {
+    const voicing = getChordVoicing(keyIdx, shapeName, quality);
+    const legendItems = quality === 'dom7'
+      ? [{label:'Root',type:'R'},{label:'Major 3rd',type:'M3'},{label:'5th',type:'5'},{label:'b7',type:'b7'}]
+      : quality === 'minor'
+      ? [{label:'Root',type:'R'},{label:'Minor 3rd',type:'m3'},{label:'5th',type:'5'}]
+      : [{label:'Root',type:'R'},{label:'Major 3rd',type:'M3'},{label:'5th',type:'5'}];
+    const chordName = quality==='major' ? `${kn} major` : quality==='minor' ? `${kn} minor` : `${kn}7`;
+    const blurb = quality === 'dom7'
+      ? `Built from a major triad plus a flatted 7th — the chord at the heart of every blues progression.`
+      : quality === 'minor'
+      ? `Same shape as the major version with the 3rd dropped a half-step.`
+      : `The five CAGED shapes give you this chord in five places on the neck.`;
+    return (
+      <div>
+        <Legend items={legendItems}/>
+        <Fretboard voicing={voicing} baseFret={bf} barreStr={sh.barreStr} numFrets={sh.scaleWindow}/>
+        <p style={{margin:'10px 0 0',fontSize:13,color:'var(--color-text-secondary)',lineHeight:1.6}}>
+          <strong style={{color:'var(--color-text-primary)',fontWeight:600}}>{chordName} chord</strong> — {sh.label}, {posLabel}.{' '}
+          {sh.barreStr ? `Barre ${sh.barreStr===6?'all 6':'5'} strings at fret ${bf}. ` : ''}{blurb}
+        </p>
+      </div>
+    );
+  }
+
+  if (step === 1) {
+    const dots = generateDots(keyIdx, shapeName, q.arpeggio, q.arpNames);
+    const noteNames = q.arpeggio.map(iv => semiToName(keyIdx+iv));
+    const items = q.arpNames.map((nm,i) => ({ label:`${nm} (${noteNames[i]})`, type:nm }));
+    const arpLabel = quality==='major' ? 'major arpeggio' : quality==='minor' ? 'minor arpeggio' : '7 arpeggio';
+    const blurb = quality === 'dom7'
+      ? 'Four notes instead of three — this is the shape that gives dominant-7 chords their bluesy pull.'
+      : 'Play each note separately, ascending then descending through the shape.';
+    return (
+      <div>
+        <Legend items={items}/>
+        <Fretboard dots={dots} baseFret={bf} numFrets={sh.scaleWindow}/>
+        <p style={{margin:'10px 0 0',fontSize:13,color:'var(--color-text-secondary)',lineHeight:1.6}}>
+          <strong style={{color:'var(--color-text-primary)',fontWeight:600}}>{kn} {arpLabel}</strong> — {noteNames.join(' – ')}. {blurb}
+        </p>
+      </div>
+    );
+  }
+
+  if (step === 2) {
+    const isMajorPenta = quality === 'major';
+    const pentaIv    = isMajorPenta ? MAJOR_PENTA : MINOR_PENTA;
+    const pentaNames = isMajorPenta ? MAJOR_PENTA_NAMES : MINOR_PENTA_NAMES;
+    const dots = generateDots(keyIdx, shapeName, pentaIv, pentaNames);
+    const pn = pentaIv.map(i => semiToName(keyIdx+i));
+    const items = pentaNames.map((nm,i) => ({ label:`${nm} (${pn[i]})`, type:nm }));
+    const pentaLabel = isMajorPenta ? 'major pentatonic' : 'minor pentatonic';
+    const blurb = quality === 'dom7'
+      ? `The essential blues lead shape over ${kn}7 — pair it with the blues scale next for the full vocabulary.`
+      : quality === 'minor'
+      ? `Shares its minor 3rd with the chord itself — your most natural improvising scale here.`
+      : `Built from the major scale's R, 2, 3, 5 and 6 — the bright, "country/rock" pentatonic sound that pairs naturally with major chords.`;
+    return (
+      <div>
+        <Legend items={items}/>
+        <Fretboard dots={dots} baseFret={bf} numFrets={sh.scaleWindow}/>
+        <p style={{margin:'10px 0 0',fontSize:13,color:'var(--color-text-secondary)',lineHeight:1.6}}>
+          <strong style={{color:'var(--color-text-primary)',fontWeight:600}}>{kn} {pentaLabel}</strong> — {pn.join(' – ')}. {blurb}
+        </p>
+      </div>
+    );
+  }
+
+  if (step === 3) {
+    const dots = generateDots(keyIdx, shapeName, q.scale, q.scaleNames);
+    const sn = q.scale.map(iv => semiToName(keyIdx+iv));
+    const items = q.scaleNames.map((nm,i) => ({ label:nm, type:nm }));
+    const blurb = quality === 'dom7'
+      ? `This is the minor pentatonic plus one extra note — the "blue note" (b5) — for that classic blues bend and passing tone.`
+      : quality === 'minor'
+      ? `The pentatonic notes plus the 2nd and 6th degrees fill out the full minor sound.`
+      : `Notice how the arpeggio tones (R, M3, 5) sit inside this pattern.`;
+    return (
+      <div>
+        <Legend items={items}/>
+        <Fretboard dots={dots} baseFret={bf} numFrets={sh.scaleWindow}/>
+        <p style={{margin:'10px 0 0',fontSize:13,color:'var(--color-text-secondary)',lineHeight:1.6}}>
+          <strong style={{color:'var(--color-text-primary)',fontWeight:600}}>{kn} {q.scaleLabel.toLowerCase()}</strong> — {sn.join(' – ')}. {blurb}
+        </p>
+      </div>
+    );
+  }
+}
+
+// ─── Mini fretboard — all 5 CAGED positions across the neck ───────────────
+function NeckMap({ keyIdx, activeShape, onSelect }) {
+  const maxFret = 18;
+  const VW = 350, PL = 24, PR = 10, PT = 8, PB = 16;
+  const strH = 14.5, STR_COUNT = 6;
+  const VH = PT + (STR_COUNT-1)*strH + PB;
+  const fretToX = f => PL + (f/maxFret)*(VW-PL-PR);
+
+  return (
+    <svg viewBox={`0 0 ${VW} ${VH}`} style={{width:'100%',display:'block'}}>
+      {/* Nut */}
+      <line x1={PL} y1={PT-3} x2={PL} y2={PT+(STR_COUNT-1)*strH+3} stroke="var(--color-text-secondary)" strokeWidth={2.5}/>
+      {/* Fret guides */}
+      {[3,5,7,9,12,15,17].map(f => (
+        <line key={f} x1={fretToX(f)} y1={PT} x2={fretToX(f)} y2={PT+(STR_COUNT-1)*strH}
+          stroke="var(--color-border-tertiary)" strokeWidth={0.5} strokeDasharray="2,2"/>
+      ))}
+      {/* Strings */}
+      {Array.from({length:STR_COUNT},(_,s) => (
+        <g key={s}>
+          <line x1={PL} y1={PT+s*strH} x2={VW-PR} y2={PT+s*strH}
+            stroke="var(--color-border-primary)" strokeWidth={0.5+s*0.25}/>
+          <text x={PL-9} y={PT+s*strH+3} textAnchor="middle" fontSize={8.5}
+            fontFamily="var(--font-mono)" fill="var(--color-text-tertiary)">{STRING_NAMES[s]}</text>
+        </g>
+      ))}
+      {/* Shape position markers — sit on the string each shape's root lives on */}
+      {SHAPES.map(s => {
+        const pos = getBaseFret(keyIdx, s);
+        const sh = CAGED_SHAPES[s];
+        const x = fretToX(pos);
+        const y = PT + sh.rootStr*strH;
+        const active = s === activeShape;
+        const w = active?27:20, h = active?17:13;
+        return (
+          <g key={s} onClick={() => onSelect(s)} style={{cursor:'pointer'}}>
+            <rect x={x-w/2} y={y-h/2} width={w} height={h} rx={4} fill={sh.color}
+              stroke={active?'var(--color-background-primary)':'none'} strokeWidth={active?1.5:0}/>
+            <text x={x} y={y+3.5} textAnchor="middle" fontSize={active?10.5:9} fontWeight="700"
+              fontFamily="var(--font-mono)" fill="white">{s}</text>
+          </g>
+        );
+      })}
+      {/* Fret numbers */}
+      {[0,3,5,7,9,12,15].map(f => (
+        <text key={f} x={fretToX(f)} y={VH-4} textAnchor="middle" fontSize={8.5}
+          fontFamily="var(--font-mono)" fill="var(--color-text-tertiary)">{f===0?'':f}</text>
+      ))}
+    </svg>
+  );
+}
+
+// ─── Quality selector ───────────────────────────────────────────────────────
+function QualitySelector({ quality, onSelect }) {
+  return (
+    <div style={{display:'flex',gap:6,marginBottom:12}}>
+      {QUALITY_ORDER.map(qk => {
+        const active = qk === quality;
+        return (
+          <button key={qk} onClick={() => onSelect(qk)}
+            style={{
+              flex:1, padding:'10px 4px', borderRadius:10, cursor:'pointer',
+              border: active ? '1.5px solid var(--color-text-primary)' : '0.5px solid var(--color-border-secondary)',
+              background: active ? 'var(--color-text-primary)' : 'var(--color-background-primary)',
+              color: active ? 'var(--color-background-primary)' : 'var(--color-text-primary)',
+              fontSize:13, fontWeight: active?600:400,
+              transition:'background-color 0.15s, border-color 0.15s, color 0.15s',
+              WebkitTapHighlightColor:'transparent'
+            }}>
+            {QUALITIES[qk].label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── CSS custom properties ──────────────────────────────────────────────────
+// The original component is designed for an environment that already defines
+// these design tokens. Here we inject sensible standalone values (a light
+// theme with dark text/borders, plus mono + sans font stacks) so every part
+// of the fretboard, labels, and strings remains visible.
+function ThemeVars() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const vars = {
+      '--color-background-primary': '#ffffff',
+      '--color-background-secondary': '#f3f1ee',
+      '--color-border-primary': '#94a3b8',
+      '--color-border-secondary': '#cbd5e1',
+      '--color-border-tertiary': '#e2e8f0',
+      '--color-text-primary': '#1e293b',
+      '--color-text-secondary': '#475569',
+      '--color-text-tertiary': '#94a3b8',
+      '--font-mono': "'SF Mono', 'Roboto Mono', 'Menlo', 'Consolas', monospace",
+      '--font-sans': "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    };
+    Object.entries(vars).forEach(([k,v]) => root.style.setProperty(k,v));
+  }, []);
+  return null;
+}
+
+// ─── Main app ───────────────────────────────────────────────────────────────
+function App() {
+  const [keyIdx, setKeyIdx] = useState(9);   // A
+  const [shape, setShape]   = useState('A');
+  const [quality, setQuality] = useState('major');
+  const [step, setStep]     = useState(0);
+  const [useFlats, setUseFlats] = useState(false);
+  const [showKeyPicker, setShowKeyPicker] = useState(false);
+
+  const keyName     = NOTE_DISPLAY[keyIdx];
+  const displayName = useFlats && ENHARMONIC[keyName] ? ENHARMONIC[keyName] : keyName;
+  const q           = QUALITIES[quality];
+  const chordSymbol = displayName + q.suffix;
+  const shapeColor  = CAGED_SHAPES[shape].color;
+  const bf          = getBaseFret(keyIdx, shape);
+  const posLabel    = bf === 0 ? 'Open' : `Fret ${bf}`;
+  const stepLabel   = step === 3 ? q.scaleShort : step === 2 ? q.pentaShort : STEPS[step];
+
+  const goNext = useCallback(() => {
+    if (step < 3) setStep(s => s+1);
+    else { setShape(s => SHAPES[(SHAPES.indexOf(s)+1)%5]); setStep(0); }
+  }, [step]);
+  const goPrev = useCallback(() => {
+    if (step > 0) setStep(s => s-1);
+  }, [step]);
+
+  const selectShape = (s) => { setShape(s); setStep(0); };
+
+  const ALL_NOTES = Array.from({length:12},(_,i) => {
+    const n = NOTE_DISPLAY[i];
+    return useFlats && ENHARMONIC[n] ? ENHARMONIC[n] : n;
+  });
+
+  return (
+    <div style={{fontFamily:'var(--font-sans)',padding:'14px 14px 28px',maxWidth:520,margin:'0 auto',boxSizing:'border-box',background:'var(--color-background-primary)'}}>
+      <ThemeVars/>
+      <h2 className="sr-only">CAGED guitar practice — chords, arpeggios, pentatonics and scales for every key and position</h2>
+
+      {/* ── Top bar ── */}
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <button onClick={() => setShowKeyPicker(v=>!v)}
+          style={{
+            display:'flex',alignItems:'center',justifyContent:'center',
+            padding:'10px 16px', borderRadius:18,
+            border:`1.5px solid ${shapeColor}`, background:shapeColor, color:'white',
+            fontSize:22, fontWeight:800, letterSpacing:'-0.5px',
+            fontFamily:'var(--font-mono)',
+            cursor:'pointer', flexShrink:0, minWidth:64,
+            transition:'background-color 0.15s, border-color 0.15s',
+            WebkitTapHighlightColor:'transparent'
+          }}>
+          {chordSymbol}
+        </button>
+
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:600,fontSize:15,color:'var(--color-text-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+            {CAGED_SHAPES[shape].label}
+          </div>
+          <div style={{fontSize:12,color:'var(--color-text-secondary)'}}>{posLabel} · {stepLabel}</div>
+        </div>
+
+        <button onClick={() => setUseFlats(v=>!v)}
+          style={{
+            padding:'6px 10px', borderRadius:8, fontSize:13, cursor:'pointer',
+            border:'0.5px solid var(--color-border-secondary)',
+            background:'var(--color-background-secondary)',
+            color:'var(--color-text-secondary)', flexShrink:0,
+            WebkitTapHighlightColor:'transparent'
+          }}>
+          {useFlats ? '♯' : '♭'}
+        </button>
+      </div>
+
+      {/* ── Key picker (collapsible) ── */}
+      {showKeyPicker && (
+        <div style={{
+          marginBottom:14, padding:10,
+          background:'var(--color-background-secondary)',
+          borderRadius:10, border:'0.5px solid var(--color-border-tertiary)'
+        }}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:6}}>
+            {ALL_NOTES.map((n,i) => (
+              <button key={i} onClick={() => { setKeyIdx(i); setShowKeyPicker(false); }}
+                style={{
+                  padding:'10px 0', borderRadius:8,
+                  border: i===keyIdx ? `1.5px solid ${shapeColor}` : '0.5px solid var(--color-border-tertiary)',
+                  background: i===keyIdx ? shapeColor : 'var(--color-background-primary)',
+                  color: i===keyIdx ? 'white' : 'var(--color-text-primary)',
+                  fontSize:14, fontWeight: i===keyIdx ? 600 : 400,
+                  fontFamily:'var(--font-mono)',
+                  cursor:'pointer', textAlign:'center',
+                  transition:'background-color 0.15s, border-color 0.15s',
+                  WebkitTapHighlightColor:'transparent'
+                }}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Quality selector ── */}
+      <QualitySelector quality={quality} onSelect={setQuality}/>
+
+      {/* ── CAGED shape selector ── */}
+      <div style={{display:'flex',gap:6,marginBottom:12}}>
+        {SHAPES.map(s => {
+          const pos = getBaseFret(keyIdx, s);
+          const active = s === shape;
+          const c = CAGED_SHAPES[s].color;
+          return (
+            <button key={s} onClick={() => selectShape(s)}
+              style={{
+                flex:1, padding:'11px 4px', borderRadius:12, cursor:'pointer',
+                border: active ? `1.5px solid ${c}` : '0.5px solid var(--color-border-secondary)',
+                background: active ? c : 'var(--color-background-primary)',
+                color: active ? 'white' : 'var(--color-text-primary)',
+                textAlign:'center', transition:'background-color 0.15s, border-color 0.15s, color 0.15s',
+                WebkitTapHighlightColor:'transparent'
+              }}>
+              <div style={{fontSize:17,fontWeight:700,lineHeight:1,fontFamily:'var(--font-mono)'}}>{s}</div>
+              <div style={{fontSize:10,opacity:0.75,marginTop:3}}>{pos===0?'open':`fr${pos}`}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Step tabs ── */}
+      <div style={{
+        display:'grid',gridTemplateColumns:'repeat(4,1fr)',
+        border:'0.5px solid var(--color-border-tertiary)',
+        borderRadius:12, overflow:'hidden', marginBottom:14
+      }}>
+        {STEPS.map((s,i) => (
+          <button key={s} onClick={() => setStep(i)}
+            style={{
+              padding:'10px 4px', textAlign:'center', fontSize:12, cursor:'pointer',
+              background: step===i ? 'var(--color-background-secondary)' : 'var(--color-background-primary)',
+              color: step===i ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+              fontWeight: step===i ? 600 : 400,
+              border:'none',
+              borderRight: i<3 ? '0.5px solid var(--color-border-tertiary)' : 'none',
+              transition:'background-color 0.15s, color 0.15s',
+              WebkitTapHighlightColor:'transparent'
+            }}>
+            <div style={{fontSize:16,marginBottom:2}}>{STEP_ICONS[i]}</div>
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Fretboard card ── */}
+      <div style={{
+        background:'var(--color-background-primary)',
+        border:'0.5px solid var(--color-border-tertiary)',
+        borderTop:`3px solid ${shapeColor}`,
+        borderRadius:14, padding:'16px 14px',
+        marginBottom:12,
+        transition:'border-top-color 0.15s'
+      }}>
+        <StepView keyIdx={keyIdx} shapeName={shape} quality={quality} step={step}/>
+      </div>
+
+      {/* ── Prev / Next ── */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:8,marginBottom:14}}>
+        <button onClick={goPrev} disabled={step===0}
+          style={{
+            padding:'15px 0', borderRadius:12, cursor:step===0?'default':'pointer',
+            border:'0.5px solid var(--color-border-secondary)',
+            background:'var(--color-background-primary)',
+            color:'var(--color-text-primary)', fontSize:14,
+            opacity:step===0?0.3:1,
+            WebkitTapHighlightColor:'transparent'
+          }}>
+          ‹ {step>0?STEPS[step-1]:''}
+        </button>
+        <div style={{display:'flex',alignItems:'center',fontSize:11,fontFamily:'var(--font-mono)',color:'var(--color-text-tertiary)',padding:'0 4px'}}>
+          {step+1}/4
+        </div>
+        <button onClick={goNext}
+          style={{
+            padding:'15px 0', borderRadius:12, cursor:'pointer',
+            border:`1.5px solid ${shapeColor}`, background:shapeColor, color:'white',
+            fontSize:14, fontWeight:600,
+            transition:'background-color 0.15s, border-color 0.15s',
+            WebkitTapHighlightColor:'transparent'
+          }}>
+          {step<3 ? STEPS[step+1] : SHAPES[(SHAPES.indexOf(shape)+1)%5]+'-shape'} ›
+        </button>
+      </div>
+
+      {/* ── Neck overview ── */}
+      <div style={{
+        padding:14, background:'var(--color-background-secondary)',
+        borderRadius:14, border:'0.5px solid var(--color-border-tertiary)'
+      }}>
+        <div style={{fontSize:11,color:'var(--color-text-tertiary)',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.08em',fontFamily:'var(--font-mono)'}}>
+          {chordSymbol} — all positions
+        </div>
+        <NeckMap keyIdx={keyIdx} activeShape={shape} onSelect={selectShape}/>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
